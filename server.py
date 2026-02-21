@@ -26,7 +26,7 @@ def save_match(match_data):
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'vd-golf-v4';
+const CACHE = 'vd-golf-v5';
 const CORE = ['/'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -185,7 +185,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg
       </div>
     </div>
     <button class="btn btn-green" onclick="resumeMatch()" style="margin:0 0 8px">Resume Match</button>
-    <button class="btn btn-ghost" onclick="abandonMatch()" style="margin:0;font-size:14px;padding:10px">Abandon &amp; Start New</button>
+    <button class="btn btn-ghost" onclick="deleteMatch()" style="margin:0;font-size:14px;padding:10px;color:#ef4444;border-color:#ef4444">Delete Match</button>
   </div>
   <div class="card">
     <h3>Select Nines (in play order)</h3>
@@ -196,6 +196,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg
     <div class="honor-row">
       <button class="hbtn sel" id="hbtn-V" onclick="setHonor('V')">V</button>
       <button class="hbtn" id="hbtn-D" onclick="setHonor('D')">D</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Starting Score</h3>
+    <div style="display:flex;align-items:center;justify-content:center;gap:24px;padding:4px 0">
+      <button class="sbtn minus" onclick="adjOffset(-1)">−</button>
+      <div style="text-align:center">
+        <div style="font-size:32px;font-weight:900" id="offset-display">D+1</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">carry-in pts</div>
+      </div>
+      <button class="sbtn plus" onclick="adjOffset(1)">+</button>
     </div>
   </div>
   <button class="btn btn-green" onclick="startMatch()">Start Match</button>
@@ -345,12 +356,13 @@ let S = loadState() || freshState();
 function freshState() {
   return {
     date: today(),
-    selectedNines: [],   // indices into COURSE.nines
-    holes: [],           // flat hole array for this match
+    selectedNines: [],
+    holes: [],
     initialHonor: 'V',
-    results: [],         // per-hole results
-    strokeMap: {},       // holeIdx -> {v:bool, d:bool}
-    strokesComputedAt: [],// holeIdx values where strokes already computed
+    startOffset: -1,     // D+1 default (negative=D leads, positive=V leads)
+    results: [],
+    strokeMap: {},
+    strokesComputedAt: [],
     curV: 4,
     curD: 4,
     inProgress: false,
@@ -365,6 +377,8 @@ function today() { return new Date().toISOString().slice(0,10); }
 function matchScore() {
   let v=0, d=0;
   S.results.forEach(r => { v+=r.vPts; d+=r.dPts; });
+  const off = S.startOffset || 0;
+  if (off > 0) v += off; else d += Math.abs(off);
   return {v, d};
 }
 function margin() { const m=matchScore(); return m.v - m.d; } // pos=V winning
@@ -504,6 +518,7 @@ function initSetup() {
     el.appendChild(d);
   });
   setHonor(S.initialHonor);
+  updateOffsetDisplay();
 }
 
 function toggleNine(idx) {
@@ -521,9 +536,12 @@ function setHonor(p) {
 
 function startMatch() {
   if (S.selectedNines.length === 0) { showToast('Select at least one nine'); return; }
+  // Preserve settings from setup UI before resetting
+  const savedOffset = S.startOffset || 0;
+  const savedHonor = S.initialHonor;
   S = freshState();
-  S.selectedNines = [...(window._tmpNines || [])];
-  // re-read UI selections
+  S.startOffset = savedOffset;
+  S.initialHonor = savedHonor;
   S.selectedNines = [];
   document.querySelectorAll('.nine-opt.sel').forEach(el => {
     S.selectedNines.push(parseInt(el.id.split('-')[2]));
@@ -920,8 +938,28 @@ function resumeMatch() {
   else showSummary();
 }
 
+function adjOffset(d) {
+  S.startOffset = (S.startOffset || 0) + d;
+  updateOffsetDisplay();
+  saveState();
+}
+
+function updateOffsetDisplay() {
+  const o = S.startOffset || 0;
+  const el = document.getElementById('offset-display');
+  if (!el) return;
+  if (o === 0) { el.textContent='Even'; el.style.color='var(--muted)'; }
+  else if (o > 0) { el.textContent=`V+${o}`; el.style.color='var(--green)'; }
+  else { el.textContent=`D+${Math.abs(o)}`; el.style.color='var(--blue)'; }
+}
+
+function deleteMatch() {
+  S = freshState();
+  saveState();
+  initSetup();
+}
+
 function abandonMatch() {
-  if (!confirm('Abandon current match and start a new one?')) return;
   S = freshState();
   saveState();
   initSetup();
