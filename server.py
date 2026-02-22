@@ -173,7 +173,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v5';
+const CACHE = 'golf-log-v6';
 const CORE = ['/', '/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -1357,22 +1357,27 @@ function renderHistory(matches, rounds) {
   const body=document.getElementById('history-body');
   let html='';
 
-  // VD Standing card
+  // VD match results table
   if (matches.length) {
     let running=0;
-    const standings=matches.map(m=>{
+    const rows=[...matches].reverse().map(m=>{
       if (m.historical) running=m.winner==='D'?m.margin:m.winner==='V'?-m.margin:0;
       else running+=m.winner==='D'?m.margin:m.winner==='V'?-m.margin:0;
-      return running;
+      const winColor=m.winner==='D'?'var(--green)':m.winner==='V'?'var(--saffron)':'var(--muted)';
+      const totStr=running>0?`D +${running}`:running<0?`V +${Math.abs(running)}`:'Even';
+      const totColor=running>0?'var(--green)':running<0?'var(--saffron)':'var(--muted)';
+      return `<tr>
+        <td style="color:var(--muted)">${m.date||'—'}</td>
+        <td style="color:${winColor};font-weight:700">${m.winner||'—'} +${m.margin||0}</td>
+        <td style="color:${totColor};font-weight:700">${totStr}</td>
+      </tr>`;
     });
-    const cur=standings[standings.length-1];
-    const curStr=cur>0?`D +${cur}`:cur<0?`V +${Math.abs(cur)}`:'Even';
-    const curColor=cur>0?'var(--blue)':cur<0?'var(--green)':'var(--muted)';
-    html+=`<div class="card" style="text-align:center">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px">VD Standing</div>
-      <div style="font-size:48px;font-weight:900;color:${curColor}">${curStr}</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:6px">${matches.length} matches · <a href="/history" style="color:var(--muted)">Full history →</a></div>
-    </div>`;
+    html+=`<div class="card"><h3>VD Match Results</h3><div style="overflow-x:auto">
+      <table class="htbl" style="font-size:12px">
+        <tr><th>Date</th><th>Result</th><th>Total</th></tr>
+        ${rows.join('')}
+      </table>
+    </div></div>`;
   }
 
   // Recent rounds
