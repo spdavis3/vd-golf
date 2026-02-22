@@ -173,7 +173,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v8';
+const CACHE = 'golf-log-v9';
 const CORE = ['/', '/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -961,7 +961,13 @@ function calcHole(hole,vGross,dGross,vStroke,dStroke) {
 
 function matchScore() {
   let vNet=0,dNet=0;
-  R.results.forEach(r=>{ if(r.vd){vNet+=r.vd.vNet;dNet+=r.vd.dNet;} });
+  R.results.forEach(r=>{
+    if(r.vd){
+      // Rule: hole is halved if BOTH nets are worse than bogey (net > par+1)
+      if(r.vd.vNet > r.par+1 && r.vd.dNet > r.par+1) return;
+      vNet+=r.vd.vNet; dNet+=r.vd.dNet;
+    }
+  });
   return {vNet,dNet};
 }
 function margin() {
@@ -1044,7 +1050,9 @@ function showOverlay(hole,calc) {
   const m=margin();
   document.getElementById('ov-hole').textContent='Hole '+hole.number;
   const w=document.getElementById('ov-winner');
-  if (calc.vNet<calc.dNet){w.textContent='V wins hole';w.style.color='var(--saffron)';}
+  const bothOverBogey = calc.vNet > hole.par+1 && calc.dNet > hole.par+1;
+  if (bothOverBogey){w.textContent='Halved (both over bogey)';w.style.color='var(--muted)';}
+  else if (calc.vNet<calc.dNet){w.textContent='V wins hole';w.style.color='var(--saffron)';}
   else if (calc.dNet<calc.vNet){w.textContent='D wins hole';w.style.color='var(--green)';}
   else{w.textContent='Halved';w.style.color='var(--muted)';}
   const lr=R.results[R.results.length-1];
@@ -1181,9 +1189,10 @@ function showSummary() {
     let vNetR=0,dNetR=0;
     R.results.forEach(r=>{
       if (!r.vd) return;
-      vNetR+=r.vd.vNet; dNetR+=r.vd.dNet;
+      const halved = r.vd.vNet > r.par+1 && r.vd.dNet > r.par+1;
+      if (!halved) { vNetR+=r.vd.vNet; dNetR+=r.vd.dNet; }
       const lead=dNetR-vNetR; // positive=V ahead
-      const ls=lead>0?`<span class="pv">V +${lead}</span>`:lead<0?`<span class="pd">D +${Math.abs(lead)}</span>`:'Even';
+      const ls=halved?'<span style="color:var(--muted)">—</span>':lead>0?`<span class="pv">V +${lead}</span>`:lead<0?`<span class="pd">D +${Math.abs(lead)}</span>`:'Even';
       const vs=r.vd.vGross+(r.vd.vStroke?'<span class="stroke-mark">*</span>':'');
       const ds=r.vd.dGross+(r.vd.dStroke?'<span class="stroke-mark">*</span>':'');
       tbl.innerHTML+=`<tr><td>${r.holeNumber}</td><td>${r.par}</td><td style="color:var(--saffron)">${vs}</td><td style="color:var(--green)">${ds}</td><td>${ls}</td></tr>`;
