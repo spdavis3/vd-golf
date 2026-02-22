@@ -173,7 +173,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v10';
+const CACHE = 'golf-log-v11';
 const CORE = ['/', '/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -359,6 +359,11 @@ input[type=text],input[type=number]{width:100%;padding:11px;background:#1e2a3a;b
       <button id="nine-btn-1" class="nine-btn" onclick="toggleNineBtn(1)">Foothills</button>
       <button id="nine-btn-2" class="nine-btn" onclick="toggleNineBtn(2)">Mountain</button>
     </div>
+    <div class="toggle-row" style="margin-top:12px">
+      <span style="font-size:14px;color:var(--muted)">Blue Tees</span>
+      <label class="tgl"><input type="checkbox" id="blue-tees-toggle" onchange="updateNineCombo()"><span class="tgl-slider"></span></label>
+    </div>
+    <div id="blue-tees-note" style="font-size:11px;color:var(--muted);margin-top:6px;display:none"></div>
   </div>
 
   <!-- Other course -->
@@ -638,6 +643,11 @@ const NINE_COMBOS = {
   '11': {id:'gov-foothills-foothills',name:'GC Foothills, Foothills',rating:70.2, slope:132, par:72},
   '22': {id:'gov-mountain-mountain', name:'GC Mountain, Mountain',   rating:68.4, slope:130, par:72},
 };
+// Blue tee overrides — only available for 18-hole combos where we have data
+const NINE_COMBOS_BLUE = {
+  '01': {rating: 71.9, slope: 135},
+  '12': {rating: 71.2, slope: 134},
+};
 
 // ═══════════════════════════════════════════════════════════
 // STATE
@@ -729,17 +739,43 @@ function toggleNineBtn(i) {
 function updateCourseFromNines() {
   if (R.selectedNines.length === 0) {
     R.course_id=null; R.course_name=''; R.rating=null; R.slope=null; R.par=72;
-    R.holes=[]; R.nine_hole=false; return;
+    R.holes=[]; R.nine_hole=false;
+    document.getElementById('blue-tees-note').style.display='none';
+    return;
   }
   const key = R.selectedNines.join('');
   const combo = NINE_COMBOS[key];
+  const blue = (document.getElementById('blue-tees-toggle')||{}).checked;
+  const blueData = blue && NINE_COMBOS_BLUE[key];
+  const noteEl = document.getElementById('blue-tees-note');
   if (combo) {
-    R.course_id=combo.id; R.course_name=combo.name;
-    R.rating=combo.rating; R.slope=combo.slope; R.par=combo.par;
+    R.course_id=combo.id; R.course_name=combo.name; R.par=combo.par;
     R.nine_hole = combo.par===36;
+    if (blueData) {
+      R.rating=blueData.rating; R.slope=blueData.slope;
+      R.course_name=combo.name+' (Blue)';
+      noteEl.textContent='Blue tees: rating '+blueData.rating+', slope '+blueData.slope;
+      noteEl.style.display='block';
+    } else {
+      R.rating=combo.rating; R.slope=combo.slope;
+      if (blue && combo.par===36) {
+        noteEl.textContent='No blue tee data for 9-hole rounds — using white tees';
+        noteEl.style.display='block';
+      } else if (blue) {
+        noteEl.textContent='No blue tee data for this combo — using white tees';
+        noteEl.style.display='block';
+      } else {
+        noteEl.style.display='none';
+      }
+    }
   }
   R.holes = [];
   R.selectedNines.forEach(ni => R.holes.push(...GOV_NINES[ni].holes));
+}
+
+function updateNineCombo() {
+  updateCourseFromNines();
+  saveState();
 }
 
 function selectOtherCourse() {
