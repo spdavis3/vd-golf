@@ -173,7 +173,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v7';
+const CACHE = 'golf-log-v8';
 const CORE = ['/', '/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -1137,6 +1137,8 @@ function goBackToHole(targetIdx) {
 // ═══════════════════════════════════════════════════════════
 function showSummary() {
   R.inProgress=false; saveState();
+  // Auto-save to server immediately so data is never lost
+  saveRound(true);
   document.getElementById('screen-summary').classList.add('open');
   document.getElementById('sum-date').textContent=R.date;
   document.getElementById('sum-course').textContent=R.course_name||'—';
@@ -1193,11 +1195,12 @@ function showSummary() {
   }
 }
 
-async function saveRound() {
+async function saveRound(auto=false) {
+  if (R.saved) return; // already saved
   const adjTotal = R.results.reduce((s,r)=>s+r.adj,0);
   const grossTotal = R.results.reduce((s,r)=>s+r.gross,0);
   const nineHole = R.nine_hole || adjTotal < 60;
-  const inclGhin = document.getElementById('include-ghin-toggle').checked;
+  const inclGhin = auto ? true : document.getElementById('include-ghin-toggle').checked;
 
   let vd_match = null;
   if (R.vd_enabled) {
@@ -1219,18 +1222,27 @@ async function saveRound() {
     hole_results:R.results, vd_match,
   };
 
-  document.getElementById('save-round-btn').textContent='Saving…';
-  document.getElementById('save-round-btn').disabled=true;
+  if (!auto) {
+    document.getElementById('save-round-btn').textContent='Saving…';
+    document.getElementById('save-round-btn').disabled=true;
+  }
   try {
     await fetch('/api/rounds',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    showToast('Round saved!');
-    R=freshR(); R.saved=true; saveState();
-    HDCP=null; // force refresh
-    document.getElementById('screen-summary').classList.remove('open');
-    initScoreTab();
-  } catch(e) { showToast('Save failed'); }
-  document.getElementById('save-round-btn').textContent='Save Round';
-  document.getElementById('save-round-btn').disabled=false;
+    R.saved=true; saveState();
+    HDCP=null;
+    if (auto) {
+      showToast('Round auto-saved ✓');
+    } else {
+      showToast('Round saved!');
+      R=freshR(); R.saved=true; saveState();
+      document.getElementById('screen-summary').classList.remove('open');
+      initScoreTab();
+    }
+  } catch(e) { showToast(auto ? 'Auto-save failed — tap Save Round' : 'Save failed'); }
+  if (!auto) {
+    document.getElementById('save-round-btn').textContent='Save Round';
+    document.getElementById('save-round-btn').disabled=false;
+  }
 }
 
 function getHonorNext() {
