@@ -173,7 +173,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v6';
+const CACHE = 'golf-log-v7';
 const CORE = ['/', '/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -542,9 +542,9 @@ input[type=text],input[type=number]{width:100%;padding:11px;background:#1e2a3a;b
     <div class="win-banner" id="win-banner"></div>
     <div class="card">
       <h3>Match Result</h3>
-      <div class="stat-row"><span class="stat-lbl">V Points</span><span class="stat-val pv" id="sum-v">0</span></div>
-      <div class="stat-row"><span class="stat-lbl">D Points</span><span class="stat-val pd" id="sum-d">0</span></div>
-      <div class="stat-row"><span class="stat-lbl">Margin</span><span class="stat-val" id="sum-margin">Even</span></div>
+      <div class="stat-row"><span class="stat-lbl">V Gross</span><span class="stat-val" style="color:var(--saffron)" id="sum-v">0</span></div>
+      <div class="stat-row"><span class="stat-lbl">D Gross</span><span class="stat-val" style="color:var(--green)" id="sum-d">0</span></div>
+      <div class="stat-row"><span class="stat-lbl">Net Lead</span><span class="stat-val" id="sum-margin">Even</span></div>
     </div>
   </div>
   <!-- GHIN round stats -->
@@ -688,11 +688,11 @@ function initScoreTab() {
   if (R.inProgress && R.results.length > 0) {
     document.getElementById('resume-card').style.display = 'block';
     if (R.vd_enabled) {
-      const ms = matchScore(); const m = ms.v - ms.d;
+      const m = margin();
       const leadEl = document.getElementById('rc-lead');
       if (m === 0) { leadEl.textContent = 'Even'; leadEl.style.color = '#9ca3af'; }
-      else { const who=m>0?'V':'D', c=m>0?'var(--green)':'var(--blue)';
-             leadEl.textContent=`${who} leads +${Math.abs(m)}`; leadEl.style.color=c; }
+      else { const who=m>0?'V':'D', c=m>0?'var(--saffron)':'var(--green)';
+             leadEl.textContent=`${who} +${Math.abs(m)}`; leadEl.style.color=c; }
     } else {
       const gross = R.results.reduce((s,r)=>s+r.gross,0);
       const el = document.getElementById('rc-lead');
@@ -1163,30 +1163,30 @@ function showSummary() {
   if (R.vd_enabled) {
     document.getElementById('sum-vd-section').style.display='block';
     document.getElementById('sum-hole-card').style.display='block';
-    const ms=matchScore(); const m=ms.v-ms.d;
-    document.getElementById('sum-v').textContent=ms.v;
-    document.getElementById('sum-d').textContent=ms.d;
+    const m=margin();
+    const totV=R.results.filter(r=>r.vd).reduce((s,r)=>s+r.vd.vGross,0);
+    const totD=R.results.filter(r=>r.vd).reduce((s,r)=>s+r.vd.dGross,0);
+    document.getElementById('sum-v').textContent=totV;
+    document.getElementById('sum-d').textContent=totD;
     const banner=document.getElementById('win-banner');
     const marginEl=document.getElementById('sum-margin');
-    if (m>0){banner.textContent=`🏆 V wins by ${m}!`;banner.style.color='var(--green)';marginEl.textContent=`V +${m}`;marginEl.style.color='var(--green)';}
-    else if (m<0){banner.textContent=`🏆 D wins by ${Math.abs(m)}!`;banner.style.color='var(--blue)';marginEl.textContent=`D +${Math.abs(m)}`;marginEl.style.color='var(--blue)';}
+    if (m>0){banner.textContent=`🏆 V wins +${m}!`;banner.style.color='var(--saffron)';marginEl.textContent=`V +${m}`;marginEl.style.color='var(--saffron)';}
+    else if (m<0){banner.textContent=`🏆 D wins +${Math.abs(m)}!`;banner.style.color='var(--green)';marginEl.textContent=`D +${Math.abs(m)}`;marginEl.style.color='var(--green)';}
     else{banner.textContent='All Square! 🤝';banner.style.color='var(--gold)';marginEl.textContent='Even';marginEl.style.color='var(--muted)';}
     // Hole table
     const tbl=document.getElementById('hole-tbl');
-    tbl.innerHTML=`<tr><th>Hole</th><th>Par</th><th style="color:var(--green)">V</th><th style="color:var(--blue)">D</th><th style="color:var(--green)">V+</th><th style="color:var(--blue)">D+</th><th>Lead</th></tr>`;
-    let vR=0,dR=0;
+    tbl.innerHTML=`<tr><th>Hole</th><th>Par</th><th style="color:var(--saffron)">V</th><th style="color:var(--green)">D</th><th>Net Lead</th></tr>`;
+    let vNetR=0,dNetR=0;
     R.results.forEach(r=>{
       if (!r.vd) return;
-      vR+=r.vd.vPts; dR+=r.vd.dPts;
-      const lead=vR-dR;
-      const ls=lead>0?`<span class="pv">V${lead}</span>`:lead<0?`<span class="pd">D${Math.abs(lead)}</span>`:'–';
+      vNetR+=r.vd.vNet; dNetR+=r.vd.dNet;
+      const lead=dNetR-vNetR; // positive=V ahead
+      const ls=lead>0?`<span class="pv">V +${lead}</span>`:lead<0?`<span class="pd">D +${Math.abs(lead)}</span>`:'Even';
       const vs=r.vd.vGross+(r.vd.vStroke?'<span class="stroke-mark">*</span>':'');
       const ds=r.vd.dGross+(r.vd.dStroke?'<span class="stroke-mark">*</span>':'');
-      tbl.innerHTML+=`<tr><td>${r.holeNumber}</td><td>${r.par}</td><td class="pv">${vs}</td><td class="pd">${ds}</td><td class="pv">${r.vd.vPts||'–'}</td><td class="pd">${r.vd.dPts||'–'}</td><td>${ls}</td></tr>`;
+      tbl.innerHTML+=`<tr><td>${r.holeNumber}</td><td>${r.par}</td><td style="color:var(--saffron)">${vs}</td><td style="color:var(--green)">${ds}</td><td>${ls}</td></tr>`;
     });
-    const totV=R.results.filter(r=>r.vd).reduce((s,r)=>s+r.vd.vGross,0);
-    const totD=R.results.filter(r=>r.vd).reduce((s,r)=>s+r.vd.dGross,0);
-    tbl.innerHTML+=`<tr class="total-row"><td colspan="2">Total</td><td class="pv">${totV}</td><td class="pd">${totD}</td><td class="pv">${ms.v}</td><td class="pd">${ms.d}</td><td></td></tr>`;
+    tbl.innerHTML+=`<tr class="total-row"><td colspan="2">Total</td><td style="color:var(--saffron)">${totV}</td><td style="color:var(--green)">${totD}</td><td>${m>0?`V +${m}`:m<0?`D +${Math.abs(m)}`:'Even'}</td></tr>`;
   } else {
     document.getElementById('sum-vd-section').style.display='none';
     document.getElementById('sum-hole-card').style.display='none';
@@ -1201,13 +1201,12 @@ async function saveRound() {
 
   let vd_match = null;
   if (R.vd_enabled) {
-    const ms=matchScore(); const m=ms.v-ms.d;
+    const m=margin();
     const winner = m>0?'V':m<0?'D':'T';
     const honor_next = getHonorNext();
     const nines = R.selectedNines.map(i=>GOV_NINES[i].name);
     vd_match = {
       date:R.date, winner, margin:Math.abs(m),
-      v_points:ms.v, d_points:ms.d,
       honor_next, nines, historical:false
     };
   }
@@ -1225,7 +1224,7 @@ async function saveRound() {
   try {
     await fetch('/api/rounds',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     showToast('Round saved!');
-    R=freshR(); saveState();
+    R=freshR(); R.saved=true; saveState();
     HDCP=null; // force refresh
     document.getElementById('screen-summary').classList.remove('open');
     initScoreTab();
@@ -1488,6 +1487,11 @@ async function boot() {
   fetch('/api/handicap').then(r=>r.json()).then(d=>{ HDCP=d; }).catch(()=>{});
 
   initScoreTab();
+
+  // If a completed round is in localStorage but wasn't saved, re-show the summary
+  if (!R.inProgress && !R.saved && R.results.length > 0) {
+    showSummary();
+  }
 }
 
 boot();
