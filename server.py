@@ -455,7 +455,7 @@ input[type=text],input[type=number]{width:100%;padding:11px;background:#1e2a3a;b
   <div id="hole-sbar-vd" class="sbar">
     <div class="sbar-player">
       <div class="sbar-pts" id="sb-v" style="color:var(--saffron)">0</div>
-      <div class="sbar-label" style="color:var(--saffron)">V pts</div>
+      <div class="sbar-label" style="color:var(--saffron)">V</div>
       <div class="sbar-nine" id="sb-v-nine">–</div>
     </div>
     <div class="sbar-mid">
@@ -464,7 +464,7 @@ input[type=text],input[type=number]{width:100%;padding:11px;background:#1e2a3a;b
     </div>
     <div class="sbar-player">
       <div class="sbar-pts" id="sb-d" style="color:var(--green)">0</div>
-      <div class="sbar-label" style="color:var(--green)">D pts</div>
+      <div class="sbar-label" style="color:var(--green)">D</div>
       <div class="sbar-nine" id="sb-d-nine">–</div>
     </div>
   </div>
@@ -898,16 +898,17 @@ function updateBudget() {
 
 function updateScoreBar() {
   if (R.vd_enabled) {
-    const ms=matchScore(); const m=ms.v-ms.d;
-    document.getElementById('sb-v').textContent=ms.v;
-    document.getElementById('sb-d').textContent=ms.d;
+    let vG=0,dG=0,parT=0;
+    R.results.forEach(r=>{if(r.vd){vG+=r.vd.vGross;dG+=r.vd.dGross;parT+=r.par;}});
+    document.getElementById('sb-v').textContent=R.results.length?fmtVsPar(vG-parT):'E';
+    document.getElementById('sb-d').textContent=R.results.length?fmtVsPar(dG-parT):'E';
+    const m=margin();
     const lead=document.getElementById('sb-lead'); const hint=document.getElementById('sb-hint');
     if (m===0) { lead.textContent='Even'; lead.style.color='var(--muted)'; hint.textContent=''; }
     else {
       const who=m>0?'V':'D', c=m>0?'var(--saffron)':'var(--green)';
       lead.textContent=`${who} +${Math.abs(m)}`; lead.style.color=c;
-      const st=Math.floor(Math.abs(m)/5), tr=m>0?'D':'V';
-      hint.textContent = st>0 ? `${tr} gets ${st} stroke${st>1?'s':''} next 9` : `${5-(Math.abs(m)%5)} to next stroke`;
+      hint.textContent='';
     }
     const nine=getCurrentNineScore();
     document.getElementById('sb-v-nine').textContent = nine.count?fmtVsPar(nine.vVsPar):'–';
@@ -935,8 +936,7 @@ function recordHole() {
       holeNumber:hole.number, par:hole.par, handicap:hole.handicap,
       gross:R.curD, adj:adjD, strokes_received:strokes.d?1:0,
       vd:{vGross:R.curV,dGross:R.curD,vStroke:strokes.v,dStroke:strokes.d,
-          vNet:calc.vNet,dNet:calc.dNet,vCap:calc.vCap,dCap:calc.dCap,
-          vPts:calc.vPts,dPts:calc.dPts,honor}
+          vNet:calc.vNet,dNet:calc.dNet,honor}
     });
     showOverlay(hole,calc);
   } else {
@@ -960,23 +960,20 @@ function endRoundEarly() {
 // VD SCORING LOGIC (existing, adapted)
 // ═══════════════════════════════════════════════════════════
 function calcHole(hole,vGross,dGross,vStroke,dStroke) {
-  const cap=hole.par+2;
   const vNet=vGross-(vStroke?1:0), dNet=dGross-(dStroke?1:0);
-  const vCap=Math.min(vNet,cap), dCap=Math.min(dNet,cap);
-  let vPts=0, dPts=0;
-  if (vCap<dCap&&vNet<=hole.par+1) vPts=dCap-vCap;
-  else if (dCap<vCap&&dNet<=hole.par+1) dPts=vCap-dCap;
-  return {vPts,dPts,vNet,dNet,vCap,dCap};
+  return {vNet,dNet};
 }
 
 function matchScore() {
-  let v=0,d=0;
-  R.results.forEach(r=>{ if(r.vd){v+=r.vd.vPts;d+=r.vd.dPts;} });
-  const off=R.startOffset||0;
-  if (off>0) v+=off; else d+=Math.abs(off);
-  return {v,d};
+  let vNet=0,dNet=0;
+  R.results.forEach(r=>{ if(r.vd){vNet+=r.vd.vNet;dNet+=r.vd.dNet;} });
+  return {vNet,dNet};
 }
-function margin() { const m=matchScore(); return m.v-m.d; }
+function margin() {
+  const m=matchScore(); const off=R.startOffset||0;
+  // positive = V ahead (V has lower net); startOffset>0 = V advantage
+  return (m.dNet-m.vNet)+off;
+}
 
 function getHonor() {
   for (let i=R.results.length-1;i>=0;i--) {
@@ -1049,23 +1046,23 @@ function getNineSummary(endIdx) {
 }
 
 function showOverlay(hole,calc) {
-  const ms=matchScore(); const m=ms.v-ms.d;
+  const m=margin();
   document.getElementById('ov-hole').textContent='Hole '+hole.number;
   const w=document.getElementById('ov-winner');
-  if (calc.vPts>0){w.textContent=`V +${calc.vPts}`;w.style.color='var(--green)';}
-  else if (calc.dPts>0){w.textContent=`D +${calc.dPts}`;w.style.color='var(--blue)';}
+  if (calc.vNet<calc.dNet){w.textContent='V wins hole';w.style.color='var(--saffron)';}
+  else if (calc.dNet<calc.vNet){w.textContent='D wins hole';w.style.color='var(--green)';}
   else{w.textContent='Halved';w.style.color='var(--muted)';}
   const lr=R.results[R.results.length-1];
   const vDisp=lr.vd.vGross+(lr.vd.vStroke?'<span class="stroke-mark">*</span>':'');
   const dDisp=lr.vd.dGross+(lr.vd.dStroke?'<span class="stroke-mark">*</span>':'');
-  document.getElementById('ov-scores').innerHTML=`V ${vDisp} &nbsp;·&nbsp; D ${dDisp}`;
+  document.getElementById('ov-scores').innerHTML=`<span style="color:var(--saffron)">V</span> ${vDisp} &nbsp;·&nbsp; <span style="color:var(--green)">D</span> ${dDisp}`;
   let det='';
   if (lr.vd.vStroke) det+=`V net ${lr.vd.vNet}  `;
   if (lr.vd.dStroke) det+=`D net ${lr.vd.dNet}`;
   document.getElementById('ov-detail').textContent=det.trim();
   const om=document.getElementById('ov-match');
   if (m===0){om.textContent='Even';om.style.color='var(--muted)';}
-  else{const who=m>0?'V':'D';om.textContent=`${who} leads ${Math.abs(m)}`;om.style.color=m>0?'var(--green)':'var(--blue)';}
+  else{const who=m>0?'V':'D';om.textContent=`${who} +${Math.abs(m)}`;om.style.color=m>0?'var(--saffron)':'var(--green)';}
   const nextIdx=R.results.length;
   document.getElementById('ov-next').textContent = nextIdx>=R.holes.length ? 'View Results →' : `Hole ${R.holes[nextIdx].number} →`;
   // Nine summary
@@ -1085,15 +1082,15 @@ function showOverlay(hole,calc) {
       cumHtml=`<div style="border-top:1px solid #374151;margin:10px 0;padding-top:10px">
         <div style="font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase">${nextIdx}-Hole Total</div>
         <div style="display:flex;justify-content:space-around">
-          <div style="text-align:center"><div style="font-size:26px;font-weight:900;color:var(--green)">${cv}</div><div style="font-size:12px;color:var(--muted)">V <span style="color:${cvC};font-weight:700">${fmtVsPar(cv-cp)}</span></div></div>
-          <div style="text-align:center"><div style="font-size:26px;font-weight:900;color:var(--blue)">${cd}</div><div style="font-size:12px;color:var(--muted)">D <span style="color:${cdC};font-weight:700">${fmtVsPar(cd-cp)}</span></div></div>
+          <div style="text-align:center"><div style="font-size:26px;font-weight:900;color:var(--saffron)">${cv}</div><div style="font-size:12px;color:var(--muted)">V <span style="color:${cvC};font-weight:700">${fmtVsPar(cv-cp)}</span></div></div>
+          <div style="text-align:center"><div style="font-size:26px;font-weight:900;color:var(--green)">${cd}</div><div style="font-size:12px;color:var(--muted)">D <span style="color:${cdC};font-weight:700">${fmtVsPar(cd-cp)}</span></div></div>
         </div></div>`;
     }
     nineSumEl.innerHTML=`<div style="border-top:1px solid #374151;margin:12px 0;padding-top:12px">
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase">${sum.nineName} Complete</div>
       <div style="display:flex;justify-content:space-around">
-        <div style="text-align:center"><div style="font-size:26px;font-weight:900;color:var(--green)">${sum.vGross}</div><div style="font-size:12px;color:var(--muted)">V <span style="color:${vC};font-weight:700">${fmtVsPar(sum.vVsPar)}</span></div></div>
-        <div style="text-align:center"><div style="font-size:26px;font-weight:900;color:var(--blue)">${sum.dGross}</div><div style="font-size:12px;color:var(--muted)">D <span style="color:${dC};font-weight:700">${fmtVsPar(sum.dVsPar)}</span></div></div>
+        <div style="text-align:center"><div style="font-size:26px;font-weight:900;color:var(--saffron)">${sum.vGross}</div><div style="font-size:12px;color:var(--muted)">V <span style="color:${vC};font-weight:700">${fmtVsPar(sum.vVsPar)}</span></div></div>
+        <div style="text-align:center"><div style="font-size:26px;font-weight:900;color:var(--green)">${sum.dGross}</div><div style="font-size:12px;color:var(--muted)">D <span style="color:${dC};font-weight:700">${fmtVsPar(sum.dVsPar)}</span></div></div>
       </div></div>${cumHtml}`;
     nineSumEl.style.display='block';
   } else { nineSumEl.style.display='none'; }
@@ -1115,7 +1112,7 @@ function showEditOverlay() {
     const btn=document.createElement('button');
     btn.style.cssText='width:100%;text-align:left;background:#111827;border:1px solid #374151;border-radius:10px;padding:11px 13px;margin-bottom:7px;cursor:pointer;color:#f9fafb;font-size:13px;';
     btn.innerHTML=r.vd
-      ?`<b>Hole ${r.holeNumber}</b> <span style="color:#9ca3af">Par ${r.par}</span><span style="float:right"><span style="color:var(--green)">V ${r.vd.vGross}(${vStr})</span> · <span style="color:var(--blue)">D ${r.vd.dGross}(${dStr})</span></span>`
+      ?`<b>Hole ${r.holeNumber}</b> <span style="color:#9ca3af">Par ${r.par}</span><span style="float:right"><span style="color:var(--saffron)">V ${r.vd.vGross}(${vStr})</span> · <span style="color:var(--green)">D ${r.vd.dGross}(${dStr})</span></span>`
       :`<b>Hole ${r.holeNumber}</b> <span style="color:#9ca3af">Par ${r.par}</span><span style="float:right">Score ${r.gross} (${scoreLabel(r.gross,r.par)})</span>`;
     btn.onclick=()=>goBackToHole(idx);
     list.appendChild(btn);
