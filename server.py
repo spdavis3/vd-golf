@@ -182,8 +182,20 @@ def get_handicap_data():
     }
 
 
+MANIFEST_JSON = json.dumps({
+    "name": "Golf Log",
+    "short_name": "Golf Log",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#111827",
+    "theme_color": "#111827",
+    "icons": [
+        {"src": "/icon.png", "sizes": "180x180", "type": "image/png"}
+    ]
+})
+
 # ---------------------------------------------------------------------------
-# Service Worker (v9)
+# Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
 const CACHE = 'golf-log-v1';
@@ -216,7 +228,8 @@ PWA_HTML = r"""<!DOCTYPE html>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Golf Log">
 <title>Golf Log</title>
-<link rel="apple-touch-icon" href="/icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icon.png">
+<link rel="manifest" href="/manifest.json">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1712,6 +1725,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, 'application/javascript', SW_JS)
         elif self.path == '/icon.png':
             self._send(200, 'image/png', ICON_PNG)
+        elif self.path == '/manifest.json':
+            self._send(200, 'application/manifest+json', MANIFEST_JSON)
         elif self.path == '/history':
             self._send(200, 'text/html', HISTORY_HTML)
         elif self.path == '/api/matches':
