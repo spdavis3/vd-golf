@@ -173,7 +173,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v4';
+const CACHE = 'golf-log-v5';
 const CORE = ['/', '/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -454,18 +454,16 @@ input[type=text],input[type=number]{width:100%;padding:11px;background:#1e2a3a;b
   <!-- Score bar -->
   <div id="hole-sbar-vd" class="sbar">
     <div class="sbar-player">
-      <div class="sbar-pts" id="sb-v" style="color:var(--saffron)">0</div>
+      <div class="sbar-pts" id="sb-v" style="color:var(--saffron)">E</div>
       <div class="sbar-label" style="color:var(--saffron)">V</div>
-      <div class="sbar-nine" id="sb-v-nine">–</div>
     </div>
     <div class="sbar-mid">
       <div class="sbar-lead" id="sb-lead">Even</div>
       <div class="sbar-hint" id="sb-hint"></div>
     </div>
     <div class="sbar-player">
-      <div class="sbar-pts" id="sb-d" style="color:var(--green)">0</div>
+      <div class="sbar-pts" id="sb-d" style="color:var(--green)">E</div>
       <div class="sbar-label" style="color:var(--green)">D</div>
-      <div class="sbar-nine" id="sb-d-nine">–</div>
     </div>
   </div>
   <div id="hole-sbar-solo" class="sbar" style="display:none">
@@ -910,9 +908,6 @@ function updateScoreBar() {
       lead.textContent=`${who} +${Math.abs(m)}`; lead.style.color=c;
       hint.textContent='';
     }
-    const nine=getCurrentNineScore();
-    document.getElementById('sb-v-nine').textContent = nine.count?fmtVsPar(nine.vVsPar):'–';
-    document.getElementById('sb-d-nine').textContent = nine.count?fmtVsPar(nine.dVsPar):'–';
   } else {
     const gross = R.results.reduce((s,r)=>s+r.gross,0);
     const par   = R.results.reduce((s,r)=>s+r.par,0);
