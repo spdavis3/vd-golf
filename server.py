@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Golf Log — personal golf tracking PWA + VD match scoring"""
 
-import json, os, math, base64
+import json, os, math, base64, re
 from collections import defaultdict
 from datetime import date, datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -80,6 +80,26 @@ def append_match(m):
     matches = load_matches()
     matches.append(m)
     save_json(MATCHES_FILE, matches)
+
+def update_round(round_id, updates):
+    rounds = load_rounds()
+    for r in rounds:
+        if r['id'] == round_id:
+            for k, v in updates.items():
+                r[k] = v
+            if r.get('rating') and r.get('slope') and r.get('adj_score') is not None:
+                r['differential'] = round((r['adj_score'] - r['rating']) * 113 / r['slope'], 1)
+            save_json(ROUNDS_FILE, rounds)
+            return r
+    return None
+
+def delete_round(round_id):
+    rounds = load_rounds()
+    new_rounds = [r for r in rounds if r['id'] != round_id]
+    if len(new_rounds) == len(rounds):
+        return False
+    save_json(ROUNDS_FILE, new_rounds)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +193,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v12';
+const CACHE = 'golf-log-v13';
 const CORE = ['/', '/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -578,6 +598,32 @@ input[type=text],input[type=number]{width:100%;padding:11px;background:#1e2a3a;b
   <button class="btn btn-red" onclick="discardRound()">Discard Round</button>
 </div>
 
+<!-- ═══════════ EDIT ROUND SCREEN ═══════════ -->
+<div id="screen-edit-round" class="fullscreen">
+  <div class="topbar">
+    <button onclick="closeEditRound()" style="background:none;border:none;color:var(--text);font-size:18px;cursor:pointer;padding:0 8px 0 0">←</button>
+    <h1>Edit Round</h1>
+  </div>
+  <div class="card">
+    <div id="er-label" style="color:var(--muted);font-size:13px;margin-bottom:14px"></div>
+    <div class="stat-row">
+      <span class="stat-lbl">Gross Score</span>
+      <input type="number" id="er-gross" style="width:70px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:16px;text-align:right">
+    </div>
+    <div class="stat-row" style="margin-top:10px">
+      <span class="stat-lbl">Adj Score</span>
+      <input type="number" id="er-adj" style="width:70px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:16px;text-align:right">
+    </div>
+    <div class="toggle-row" style="margin-top:14px">
+      <span style="font-size:14px;color:var(--muted)">Include in GHIN handicap</span>
+      <label class="tgl"><input type="checkbox" id="er-ghin"><span class="tgl-slider"></span></label>
+    </div>
+  </div>
+  <button class="btn btn-green" onclick="saveRoundEdit()">Save Changes</button>
+  <button class="btn btn-red" onclick="deleteRoundFromEdit()">Delete Round</button>
+  <button class="btn btn-ghost" onclick="closeEditRound()">Cancel</button>
+</div>
+
 <!-- ═══════════ RESULT OVERLAY ═══════════ -->
 <div class="overlay" id="overlay" style="display:none">
   <div class="overlay-card">
@@ -656,6 +702,8 @@ let R = loadState() || freshR();
 let HDCP = null;
 let COURSES = [];
 let _charts = {};
+let _historyRounds = [];
+let _editRoundId = null;
 
 function freshR() {
   return {
@@ -1314,6 +1362,49 @@ function discardRound() {
   initScoreTab();
 }
 
+// ── Edit / Delete saved rounds ──────────────────────────────
+function editRound(id) {
+  const round = _historyRounds.find(r=>r.id===id);
+  if (!round) return;
+  _editRoundId = id;
+  document.getElementById('er-label').textContent = `${round.date} · ${round.course_name||'—'}`;
+  document.getElementById('er-gross').value = round.score??'';
+  document.getElementById('er-adj').value   = round.adj_score??'';
+  document.getElementById('er-ghin').checked = round.include_ghin !== false;
+  document.getElementById('screen-edit-round').classList.add('open');
+}
+
+function closeEditRound() {
+  document.getElementById('screen-edit-round').classList.remove('open');
+}
+
+async function saveRoundEdit() {
+  const gross = parseInt(document.getElementById('er-gross').value);
+  const adj   = parseInt(document.getElementById('er-adj').value);
+  const inclGhin = document.getElementById('er-ghin').checked;
+  if (isNaN(gross) || isNaN(adj)) { showToast('Enter valid scores'); return; }
+  try {
+    await fetch(`/api/rounds/${_editRoundId}`,{method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({score:gross,adj_score:adj,include_ghin:inclGhin})});
+    showToast('Round updated');
+    closeEditRound();
+    HDCP=null;
+    loadHistory();
+  } catch(e) { showToast('Save failed'); }
+}
+
+async function deleteRoundFromEdit() {
+  if (!confirm('Delete this round permanently?')) return;
+  try {
+    await fetch(`/api/rounds/${_editRoundId}`,{method:'DELETE'});
+    showToast('Round deleted');
+    closeEditRound();
+    HDCP=null;
+    loadHistory();
+  } catch(e) { showToast('Delete failed'); }
+}
+
 // ═══════════════════════════════════════════════════════════
 // HANDICAP TAB
 // ═══════════════════════════════════════════════════════════
@@ -1414,6 +1505,7 @@ async function loadHistory() {
       fetch('/api/matches').then(r=>r.json()),
       fetch('/api/rounds').then(r=>r.json()),
     ]);
+    _historyRounds = rounds;
     renderHistory(matches, rounds);
   } catch(e) { body.innerHTML='<div style="color:var(--red);text-align:center;padding:40px">Load failed</div>'; }
 }
@@ -1450,13 +1542,13 @@ function renderHistory(matches, rounds) {
   if (recent.length) {
     html+=`<div class="card"><h3>Recent Rounds</h3><div style="overflow-x:auto">
       <table class="htbl" style="font-size:12px">
-        <tr><th>Date</th><th>Course</th><th>Score</th><th>Adj</th><th>Diff</th></tr>
+        <tr><th>Date</th><th>Course</th><th>Score</th><th>Diff</th><th></th></tr>
         ${recent.map(r=>`<tr>
           <td style="color:var(--muted)">${r.date}</td>
-          <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${r.course_name||'—'}</td>
-          <td>${r.score??'—'}</td>
-          <td>${r.adj_score??'—'}</td>
+          <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis">${r.course_name||'—'}</td>
+          <td>${r.adj_score??r.score??'—'}</td>
           <td style="color:${(r.differential||0)<(HDCP?.index||20)?'var(--green)':'var(--muted)'}">${r.differential??'—'}</td>
+          <td><button onclick="editRound(${r.id})" style="background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 4px">✏️</button></td>
         </tr>`).join('')}
       </table>
     </div></div>`;
@@ -1804,10 +1896,33 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, 'text/plain', 'Not found')
 
+    def do_PATCH(self):
+        m = re.match(r'^/api/rounds/(\d+)$', self.path)
+        if not m:
+            self._send(404, 'text/plain', 'Not found'); return
+        round_id = int(m.group(1))
+        n    = int(self.headers.get('Content-Length', 0))
+        body = json.loads(self.rfile.read(n))
+        result = update_round(round_id, body)
+        if result:
+            self._send(200, 'application/json', json.dumps({'ok': True}))
+        else:
+            self._send(404, 'text/plain', 'Round not found')
+
+    def do_DELETE(self):
+        m = re.match(r'^/api/rounds/(\d+)$', self.path)
+        if not m:
+            self._send(404, 'text/plain', 'Not found'); return
+        round_id = int(m.group(1))
+        if delete_round(round_id):
+            self._send(200, 'application/json', '{"ok":true}')
+        else:
+            self._send(404, 'text/plain', 'Round not found')
+
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
