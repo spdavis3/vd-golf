@@ -81,6 +81,22 @@ def append_match(m):
     matches.append(m)
     save_json(MATCHES_FILE, matches)
 
+def update_match(idx, updates):
+    matches = load_matches()
+    if 0 <= idx < len(matches):
+        matches[idx].update(updates)
+        save_json(MATCHES_FILE, matches)
+        return True
+    return False
+
+def delete_match(idx):
+    matches = load_matches()
+    if 0 <= idx < len(matches):
+        matches.pop(idx)
+        save_json(MATCHES_FILE, matches)
+        return True
+    return False
+
 def update_round(round_id, updates):
     rounds = load_rounds()
     for r in rounds:
@@ -193,7 +209,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v13';
+const CACHE = 'golf-log-v14';
 const CORE = ['/', '/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -624,6 +640,35 @@ input[type=text],input[type=number]{width:100%;padding:11px;background:#1e2a3a;b
   <button class="btn btn-ghost" onclick="closeEditRound()">Cancel</button>
 </div>
 
+<!-- ═══════════ EDIT MATCH SCREEN ═══════════ -->
+<div id="screen-edit-match" class="fullscreen">
+  <div class="topbar">
+    <button onclick="closeEditMatch()" style="background:none;border:none;color:var(--text);font-size:18px;cursor:pointer;padding:0 8px 0 0">←</button>
+    <h1 id="em-title">Edit Match</h1>
+  </div>
+  <div class="card">
+    <div class="stat-row">
+      <span class="stat-lbl">Date</span>
+      <input type="text" id="em-date" placeholder="2/22/2026"
+        style="width:110px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:16px;text-align:right">
+    </div>
+    <div style="margin-top:14px;margin-bottom:6px;font-size:13px;color:var(--muted)">Winner</div>
+    <div style="display:flex;gap:8px">
+      <button id="em-btn-d" class="nine-btn" onclick="setEmWinner('D')" style="flex:1">D</button>
+      <button id="em-btn-t" class="nine-btn" onclick="setEmWinner('T')" style="flex:1">Even</button>
+      <button id="em-btn-v" class="nine-btn" onclick="setEmWinner('V')" style="flex:1">V</button>
+    </div>
+    <div class="stat-row" id="em-margin-row" style="margin-top:14px">
+      <span class="stat-lbl">Margin (strokes)</span>
+      <input type="number" id="em-margin" min="0"
+        style="width:70px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:16px;text-align:right">
+    </div>
+  </div>
+  <button class="btn btn-green" onclick="saveMatchEdit()">Save</button>
+  <button class="btn btn-red" id="em-delete-btn" onclick="deleteMatchFromEdit()">Delete Match</button>
+  <button class="btn btn-ghost" onclick="closeEditMatch()">Cancel</button>
+</div>
+
 <!-- ═══════════ RESULT OVERLAY ═══════════ -->
 <div class="overlay" id="overlay" style="display:none">
   <div class="overlay-card">
@@ -704,6 +749,9 @@ let COURSES = [];
 let _charts = {};
 let _historyRounds = [];
 let _editRoundId = null;
+let _historyMatches = [];
+let _editMatchIdx = null;
+let _editMatchWinner = 'D';
 
 function freshR() {
   return {
@@ -1405,6 +1453,76 @@ async function deleteRoundFromEdit() {
   } catch(e) { showToast('Delete failed'); }
 }
 
+// ── Edit / Delete VD matches ─────────────────────────────────
+function editMatch(idx) {
+  const m = _historyMatches[idx];
+  if (!m) return;
+  _editMatchIdx = idx;
+  _editMatchWinner = m.winner || 'D';
+  document.getElementById('em-title').textContent = 'Edit Match';
+  document.getElementById('em-date').value = m.date || '';
+  document.getElementById('em-margin').value = m.margin ?? '';
+  document.getElementById('em-delete-btn').style.display = 'block';
+  updateEmWinnerBtns();
+  document.getElementById('screen-edit-match').classList.add('open');
+}
+
+function addMatch() {
+  _editMatchIdx = null;
+  _editMatchWinner = 'D';
+  document.getElementById('em-title').textContent = 'Add Match';
+  document.getElementById('em-date').value = today();
+  document.getElementById('em-margin').value = '';
+  document.getElementById('em-delete-btn').style.display = 'none';
+  updateEmWinnerBtns();
+  document.getElementById('screen-edit-match').classList.add('open');
+}
+
+function setEmWinner(w) {
+  _editMatchWinner = w;
+  updateEmWinnerBtns();
+}
+
+function updateEmWinnerBtns() {
+  ['D','T','V'].forEach(w => {
+    const btn = document.getElementById('em-btn-'+w.toLowerCase());
+    btn.classList.toggle('sel', _editMatchWinner === w);
+  });
+  document.getElementById('em-margin-row').style.display = _editMatchWinner === 'T' ? 'none' : 'flex';
+}
+
+function closeEditMatch() {
+  document.getElementById('screen-edit-match').classList.remove('open');
+}
+
+async function saveMatchEdit() {
+  const date = document.getElementById('em-date').value.trim();
+  const margin = _editMatchWinner === 'T' ? 0 : (parseInt(document.getElementById('em-margin').value) || 0);
+  if (!date) { showToast('Enter a date'); return; }
+  try {
+    if (_editMatchIdx === null) {
+      await fetch('/api/matches',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({date, winner:_editMatchWinner, margin, historical:true})});
+    } else {
+      await fetch(`/api/matches/${_editMatchIdx}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({date, winner:_editMatchWinner, margin})});
+    }
+    showToast(_editMatchIdx===null ? 'Match added' : 'Match updated');
+    closeEditMatch();
+    loadHistory();
+  } catch(e) { showToast('Save failed'); }
+}
+
+async function deleteMatchFromEdit() {
+  if (!confirm('Delete this match permanently?')) return;
+  try {
+    await fetch(`/api/matches/${_editMatchIdx}`,{method:'DELETE'});
+    showToast('Match deleted');
+    closeEditMatch();
+    loadHistory();
+  } catch(e) { showToast('Delete failed'); }
+}
+
 // ═══════════════════════════════════════════════════════════
 // HANDICAP TAB
 // ═══════════════════════════════════════════════════════════
@@ -1506,6 +1624,7 @@ async function loadHistory() {
       fetch('/api/rounds').then(r=>r.json()),
     ]);
     _historyRounds = rounds;
+    _historyMatches = matches;
     renderHistory(matches, rounds);
   } catch(e) { body.innerHTML='<div style="color:var(--red);text-align:center;padding:40px">Load failed</div>'; }
 }
@@ -1517,21 +1636,29 @@ function renderHistory(matches, rounds) {
   // VD match results table
   if (matches.length) {
     let running=0;
-    const rows=[...matches].reverse().map(m=>{
+    const rows=[...matches].reverse().map((m,ri)=>{
+      const origIdx=matches.length-1-ri;
       if (m.historical) running=m.winner==='D'?m.margin:m.winner==='V'?-m.margin:0;
       else running+=m.winner==='D'?m.margin:m.winner==='V'?-m.margin:0;
       const winColor=m.winner==='D'?'var(--green)':m.winner==='V'?'var(--saffron)':'var(--muted)';
       const totStr=running>0?`D +${running}`:running<0?`V +${Math.abs(running)}`:'Even';
       const totColor=running>0?'var(--green)':running<0?'var(--saffron)':'var(--muted)';
+      const result=m.winner==='T'?'Even':`${m.winner} +${m.margin||0}`;
       return `<tr>
         <td style="color:var(--muted)">${m.date||'—'}</td>
-        <td style="color:${winColor};font-weight:700">${m.winner||'—'} +${m.margin||0}</td>
+        <td style="color:${winColor};font-weight:700">${result}</td>
         <td style="color:${totColor};font-weight:700">${totStr}</td>
+        <td><button onclick="editMatch(${origIdx})" style="background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 4px">✏️</button></td>
       </tr>`;
     });
-    html+=`<div class="card"><h3>VD Match Results</h3><div style="overflow-x:auto">
+    html+=`<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3 style="margin:0">VD Match Results</h3>
+        <button onclick="addMatch()" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px 10px;font-size:14px;cursor:pointer">+ Add</button>
+      </div>
+      <div style="overflow-x:auto">
       <table class="htbl" style="font-size:12px">
-        <tr><th>Date</th><th>Result</th><th>Total</th></tr>
+        <tr><th>Date</th><th>Result</th><th>Total</th><th></th></tr>
         ${rows.join('')}
       </table>
     </div></div>`;
@@ -1890,34 +2017,41 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/api/courses':
             save_course(body)
             self._send(200, 'application/json', '{"ok":true}')
-        elif self.path == '/api/match':  # legacy
+        elif self.path in ('/api/matches', '/api/match'):
             append_match(body)
             self._send(200, 'application/json', '{"ok":true}')
         else:
             self._send(404, 'text/plain', 'Not found')
 
     def do_PATCH(self):
-        m = re.match(r'^/api/rounds/(\d+)$', self.path)
-        if not m:
-            self._send(404, 'text/plain', 'Not found'); return
-        round_id = int(m.group(1))
-        n    = int(self.headers.get('Content-Length', 0))
+        n = int(self.headers.get('Content-Length', 0))
         body = json.loads(self.rfile.read(n))
-        result = update_round(round_id, body)
-        if result:
-            self._send(200, 'application/json', json.dumps({'ok': True}))
+        mr = re.match(r'^/api/rounds/(\d+)$', self.path)
+        mm = re.match(r'^/api/matches/(\d+)$', self.path)
+        if mr:
+            result = update_round(int(mr.group(1)), body)
+            self._send(200 if result else 404, 'application/json',
+                       '{"ok":true}' if result else '"not found"')
+        elif mm:
+            ok = update_match(int(mm.group(1)), body)
+            self._send(200 if ok else 404, 'application/json',
+                       '{"ok":true}' if ok else '"not found"')
         else:
-            self._send(404, 'text/plain', 'Round not found')
+            self._send(404, 'text/plain', 'Not found')
 
     def do_DELETE(self):
-        m = re.match(r'^/api/rounds/(\d+)$', self.path)
-        if not m:
-            self._send(404, 'text/plain', 'Not found'); return
-        round_id = int(m.group(1))
-        if delete_round(round_id):
-            self._send(200, 'application/json', '{"ok":true}')
+        mr = re.match(r'^/api/rounds/(\d+)$', self.path)
+        mm = re.match(r'^/api/matches/(\d+)$', self.path)
+        if mr:
+            ok = delete_round(int(mr.group(1)))
+            self._send(200 if ok else 404, 'application/json',
+                       '{"ok":true}' if ok else '"not found"')
+        elif mm:
+            ok = delete_match(int(mm.group(1)))
+            self._send(200 if ok else 404, 'application/json',
+                       '{"ok":true}' if ok else '"not found"')
         else:
-            self._send(404, 'text/plain', 'Round not found')
+            self._send(404, 'text/plain', 'Not found')
 
     def do_OPTIONS(self):
         self.send_response(200)
