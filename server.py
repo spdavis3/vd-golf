@@ -175,18 +175,25 @@ def get_handicap_data():
     year_avg = round(sum(yr_diffs) / len(yr_diffs), 1) if yr_diffs else None
 
     # Budget: target_diff on most recent 18-hole posted course
-    budget = target_course = target_par = None
+    budget = target_course = target_par = target_holes = None
     if target_diff is not None:
         for r in reversed(posted):
             if not r.get('nine_hole') and r.get('rating') and r.get('slope'):
                 target_par = r.get('par', 72)
                 budget = math.floor(r['rating'] + target_diff * r['slope'] / 113) - target_par
                 target_course = r.get('course_name', '')
+                cid = r.get('course_id')
+                if cid:
+                    for c in load_courses():
+                        if c.get('id') == cid and c.get('holes'):
+                            target_holes = c['holes']
+                            break
                 break
 
     return {
         'index': index, 'anti_index': anti_idx, 'target_diff': target_diff,
         'budget': budget, 'target_course': target_course, 'target_par': target_par,
+        'target_holes': target_holes or [],
         'last_20_avg': last_20_avg, 'year_avg': year_avg,
         'series': series, 'yearly_avgs': yearly_avgs, 'ghin_series': ghin_series,
         'n_posted': len(posted), 'n_last_20': n,
@@ -209,7 +216,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v20';
+const CACHE = 'golf-log-v21';
 const CORE = ['/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -465,6 +472,10 @@ input[type=text],input[type=number]{width:100%;padding:11px;background:#1e2a3a;b
     <div class="stat-row"><span class="stat-lbl">Beat Differential</span><span class="stat-val" id="hcp-beat-diff" style="color:var(--gold)">—</span></div>
     <div class="stat-row"><span class="stat-lbl">Target Adj Score</span><span class="stat-val" id="hcp-target-score" style="color:var(--green);font-size:22px;font-weight:900">—</span></div>
     <div class="stat-row" style="border:none"><span class="stat-lbl">Based on</span><span class="stat-val" id="hcp-target-course" style="font-size:12px;color:var(--muted);text-align:right;max-width:180px">—</span></div>
+    <div id="hcp-par-table-wrap" style="display:none;margin-top:14px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Handicap Par — per hole</div>
+      <table id="hcp-par-table" style="width:100%;border-collapse:collapse;font-size:13px"></table>
+    </div>
   </div>
   <div class="card">
     <h3>Differential Per Round</h3>
@@ -548,6 +559,7 @@ input[type=text],input[type=number]{width:100%;padding:11px;background:#1e2a3a;b
         <div class="hole-nine" id="hole-nine"></div>
         <div class="hole-num" id="hole-num">Hole 1</div>
         <div class="hole-meta" id="hole-meta">Par 4 · Hdcp 3</div>
+        <div id="hole-hcp-par" style="display:none;font-size:13px;margin-top:4px;color:var(--green);font-weight:700"></div>
       </div>
       <button id="edit-btn" onclick="showEditOverlay()" style="display:none;background:none;border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--muted);font-size:12px;cursor:pointer">↩ Edit</button>
     </div>
@@ -999,6 +1011,20 @@ function showHole(idx) {
   document.getElementById('hole-meta').textContent = 'Par '+hole.par+' · Hdcp '+(hole.handicap||'—');
   document.getElementById('edit-btn').style.display = idx>0 ? 'block' : 'none';
 
+  // Show handicap par target if we have budget and hole handicap data
+  const hpEl = document.getElementById('hole-hcp-par');
+  if (R.budget != null && hole.handicap) {
+    const hpMap = computeHcpPar(R.holes, R.budget);
+    const tgt = hpMap[hole.number];
+    if (tgt != null) {
+      const diff = tgt - hole.par;
+      const lbl = diff > 0 ? `+${diff}` : diff < 0 ? `${diff}` : 'E';
+      hpEl.textContent = `Target: ${tgt} (${lbl})`;
+      hpEl.style.color = diff <= 0 ? 'var(--green)' : diff === 1 ? 'var(--gold)' : 'var(--red)';
+      hpEl.style.display = 'block';
+    } else { hpEl.style.display='none'; }
+  } else { hpEl.style.display='none'; }
+
   const hb = document.getElementById('badge-honor');
   const sb = document.getElementById('badge-stroke');
   if (R.vd_enabled) {
@@ -1056,6 +1082,32 @@ function updateBudget() {
   const fill = document.getElementById('budget-fill');
   fill.style.width = (frac*100)+'%';
   fill.style.background = rem>=4 ? 'var(--green)' : rem>=1 ? 'var(--gold)' : 'var(--red)';
+}
+
+// Compute per-hole target score to hit the budget (lower index)
+// Distributes budget strokes over par to hardest holes first (lowest handicap number)
+function computeHcpPar(holes, budget) {
+  if (!holes || !holes.length || budget == null) return {};
+  const n = holes.length;
+  const sorted = [...holes].sort((a,b) => a.handicap - b.handicap); // hdcp 1 = hardest first
+  const result = {};
+  if (budget >= 0) {
+    const base = Math.floor(budget / n);
+    const extra = budget % n;
+    sorted.forEach((h, i) => {
+      result[h.number] = h.par + Math.min(3, base + (i < extra ? 1 : 0));
+    });
+  } else {
+    // Need birdies — assign from easiest holes first
+    const needed = -budget;
+    const base = Math.floor(needed / n);
+    const extra = needed % n;
+    sorted.forEach((h, i) => {
+      const revI = n - 1 - i;
+      result[h.number] = h.par - Math.min(3, base + (revI < extra ? 1 : 0));
+    });
+  }
+  return result;
 }
 
 function updateScoreBar() {
@@ -1598,6 +1650,34 @@ function renderHandicap(data) {
     document.getElementById('hcp-beat-diff').textContent = data.target_diff;
     document.getElementById('hcp-target-score').textContent = targetAdj;
     document.getElementById('hcp-target-course').textContent = data.target_course||'last 18-hole course';
+
+    // Per-hole target table
+    const holes = data.target_holes||[];
+    const ptWrap = document.getElementById('hcp-par-table-wrap');
+    if (holes.length) {
+      const hpMap = computeHcpPar(holes, data.budget);
+      const tbl = document.getElementById('hcp-par-table');
+      // Build 2-row grid: header row (Hole#) and target row
+      // Show all holes in order
+      const sorted = [...holes].sort((a,b)=>a.number-b.number);
+      let hdr='<tr>', tgtRow='<tr>';
+      sorted.forEach(h => {
+        const t = hpMap[h.number];
+        const diff = t - h.par;
+        const color = diff <= 0 ? 'var(--green)' : diff===1 ? 'var(--gold)' : 'var(--red)';
+        hdr += `<td style="text-align:center;padding:3px 4px;color:var(--muted);font-size:11px;border-bottom:1px solid var(--border)">${h.number}</td>`;
+        tgtRow += `<td style="text-align:center;padding:3px 4px;font-weight:700;color:${color}">${t}</td>`;
+      });
+      hdr += '</tr>'; tgtRow += '</tr>';
+      // Par row for reference
+      let parRow = '<tr>';
+      sorted.forEach(h => {
+        parRow += `<td style="text-align:center;padding:2px 4px;font-size:11px;color:var(--muted)">${h.par}</td>`;
+      });
+      parRow += '</tr>';
+      tbl.innerHTML = hdr + tgtRow + parRow;
+      ptWrap.style.display='block';
+    } else { ptWrap.style.display='none'; }
   } else { bi.style.display='none'; }
 
   const series = data.series||[];
