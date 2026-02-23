@@ -209,7 +209,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v17';
+const CACHE = 'golf-log-v18';
 const CORE = ['/', '/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -1342,8 +1342,9 @@ function showSummary() {
     else if (playChange>0){chEl.textContent=`Match V+${playChange}`;chEl.style.color='var(--saffron)';}
     else{chEl.textContent='Match Even';chEl.style.color='var(--muted)';}
 
-    // Score vs par
-    const vVsPar=totV-R.par, dVsPar=totD-R.par;
+    // Score vs par (holes played only)
+    const parPlayed=R.results.filter(r=>r.vd).reduce((s,r)=>s+r.par,0);
+    const vVsPar=totV-parPlayed, dVsPar=totD-parPlayed;
     const fvp=n=>n>0?`+${n}`:n<0?`${n}`:'E';
     const vParEl=document.getElementById('sum-v-vpar');
     const dParEl=document.getElementById('sum-d-vpar');
