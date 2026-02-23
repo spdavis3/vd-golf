@@ -5164,5 +5164,23 @@
     "nine_hole": false,
     "hole_results": [],
     "vd_match": null
+  },
+  {
+    "id": 288,
+    "date": "2/21/2026",
+    "course_id": "gov-lakes-foothills",
+    "course_name": "Lakes to Foothills",
+    "rating": 69.9,
+    "slope": 131,
+    "par": 72,
+    "score": 84,
+    "adj_score": 84,
+    "course_hdcp": 21,
+    "differential": 12.2,
+    "ghin_manual": null,
+    "include_ghin": true,
+    "nine_hole": false,
+    "hole_results": [],
+    "vd_match": null
   }
 ]
