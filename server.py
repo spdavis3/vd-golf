@@ -216,7 +216,7 @@ MANIFEST_JSON = json.dumps({
 # Service Worker
 # ---------------------------------------------------------------------------
 SW_JS = """
-const CACHE = 'golf-log-v21';
+const CACHE = 'golf-log-v22';
 const CORE = ['/icon.png', '/manifest.json'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)));
@@ -1011,15 +1011,14 @@ function showHole(idx) {
   document.getElementById('hole-meta').textContent = 'Par '+hole.par+' · Hdcp '+(hole.handicap||'—');
   document.getElementById('edit-btn').style.display = idx>0 ? 'block' : 'none';
 
-  // Show handicap par target if we have budget and hole handicap data
+  // Show handicap par target for 18-hole rounds with hole handicap data
   const hpEl = document.getElementById('hole-hcp-par');
-  if (R.budget != null && hole.handicap) {
+  if (!R.nine_hole && R.budget != null && hole.handicap) {
     const hpMap = computeHcpPar(R.holes, R.budget);
     const tgt = hpMap[hole.number];
     if (tgt != null) {
       const diff = tgt - hole.par;
-      const lbl = diff > 0 ? `+${diff}` : diff < 0 ? `${diff}` : 'E';
-      hpEl.textContent = `Target: ${tgt} (${lbl})`;
+      hpEl.textContent = `Hdcp Par: ${tgt}`;
       hpEl.style.color = diff <= 0 ? 'var(--green)' : diff === 1 ? 'var(--gold)' : 'var(--red)';
       hpEl.style.display = 'block';
     } else { hpEl.style.display='none'; }
@@ -1072,7 +1071,7 @@ function adjHoleScore(gross, par, holeHdcp, courseHdcp) {
 
 function updateBudget() {
   const wrap = document.getElementById('budget-bar-wrap');
-  if (!R.budget) { wrap.style.display='none'; return; }
+  if (!R.budget || R.nine_hole) { wrap.style.display='none'; return; }
   wrap.style.display='block';
   let used=0;
   R.results.forEach(r => used += r.adj - r.par);
